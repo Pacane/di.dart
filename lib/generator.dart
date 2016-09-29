@@ -10,16 +10,19 @@
  */
 library di.generator;
 
+import 'package:analyzer/dart/element/type.dart';
+import 'package:analyzer/file_system/file_system.dart';
+import 'package:analyzer/file_system/physical_file_system.dart';
+import 'package:analyzer/src/dart/sdk/sdk.dart';
 import 'package:analyzer/src/generated/java_io.dart';
 import 'package:analyzer/src/generated/source_io.dart';
-import 'package:analyzer/src/generated/ast.dart';
+import 'package:analyzer/dart/ast/ast.dart';
 import 'package:analyzer/src/generated/sdk.dart' show DartSdk;
-import 'package:analyzer/src/generated/sdk_io.dart' show DirectoryBasedDartSdk;
-import 'package:analyzer/src/generated/element.dart';
+import 'package:analyzer/dart/element/element.dart';
 import 'package:analyzer/src/generated/engine.dart';
 import 'package:path/path.dart' as path;
 
-import 'dart:io';
+import 'dart:io' as io;
 
 const String PACKAGE_PREFIX = 'package:';
 const String DART_PACKAGE_PREFIX = 'dart:';
@@ -28,14 +31,14 @@ const List<String> _DEFAULT_INJECTABLE_ANNOTATIONS = const ['di.annotations.Inje
 main(List<String> args) {
   if (args.length < 4) {
     print('Usage: generator path_to_sdk file_to_resolve annotations output [package_roots+]');
-    exit(0);
+    io.exit(0);
   }
 
   var pathToSdk = args[0];
   var entryPoint = args[1];
   var classAnnotations = args[2].split(',')..addAll(_DEFAULT_INJECTABLE_ANNOTATIONS);
   var output = args[3];
-  var packageRoots = (args.length < 5) ? [Platform.packageRoot] : args.sublist(4);
+  var packageRoots = (args.length < 5) ? [io.Platform.packageRoot] : args.sublist(4);
 
   print('pathToSdk: $pathToSdk');
   print('entryPoint: $entryPoint');
@@ -50,7 +53,7 @@ main(List<String> args) {
       var lastDot = fileName.lastIndexOf('.');
       fileName = fileName.substring(0, lastDot) + '-' + chunk.library.name + fileName.substring(lastDot);
     }
-    new File(fileName).writeAsStringSync(code);
+    new io.File(fileName).writeAsStringSync(code);
   });
 }
 
@@ -335,20 +338,21 @@ class SourceCrawler {
   void crawl(String entryPoint, CompilationUnitCrawler _visitor,
              {bool preserveComments : false}) {
     JavaSystemIO.setProperty("com.google.dart.sdk", sdkPath);
-    DartSdk sdk = DirectoryBasedDartSdk.defaultSdk;
+    Folder sdkFolder = FolderBasedDartSdk.defaultSdkDirectory(PhysicalResourceProvider.INSTANCE);
+    DartSdk sdk = new FolderBasedDartSdk(PhysicalResourceProvider.INSTANCE, sdkFolder);
 
     AnalysisOptionsImpl contextOptions = new AnalysisOptionsImpl();
     contextOptions.cacheSize = 256;
     contextOptions.preserveComments = preserveComments;
     contextOptions.analyzeFunctionBodies = false;
     context.analysisOptions = contextOptions;
-    sdk.context.analysisOptions = contextOptions;
+//    sdk.context.analysisOptions = contextOptions;
 
     var packageUriResolver = new PackageUriResolver(packageRoots.map(
         (pr) => new JavaFile.fromUri(new Uri.file(pr))).toList());
     context.sourceFactory = new SourceFactory([
       new DartUriResolver(sdk),
-      new FileUriResolver(),
+      new ResourceUriResolver(PhysicalResourceProvider.INSTANCE),
       packageUriResolver
     ]);
 
@@ -464,7 +468,7 @@ class CrawlerVisitor {
         String import = currentFile.entryPointImport;
         import = import.replaceAll('\\', '/'); // if at all needed, on Windows
         import = import.substring(0, import.lastIndexOf('/'));
-        var currentDir = new File(currentFile.canonicalPath).parent.path;
+        var currentDir = new io.File(currentFile.canonicalPath).parent.path;
         currentDir = currentDir.replaceAll('\\', '/'); // if at all needed, on Windows
         if (uri.startsWith('../')) {
           while (uri.startsWith('../')) {
